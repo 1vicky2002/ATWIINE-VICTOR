@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-CPEP3EYZM4"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-CPEP3EYZM4');
+    </script>
+    
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <title>Uganda Votes</title>
+    <meta name="description" content="Uganda's official digital polling arena for 2026. Join the national conversation through secure, verified voting and real-time national consensus tracking." />
+    <meta name="keywords" content="Uganda Elections 2026, Uganda Votes, Digital Democracy Uganda, Secure Polling, National Consensus, Uganda Political Choice" />
+    <meta name="author" content="Uganda Votes Initiative" />
+    
+    <!-- FAVICONS -->
+    <link rel="icon" type="image/x-icon" href="https://ugandavotes.netlify.app/favicon.ico">
+    <link rel="apple-touch-icon" href="https://ugandavotes.netlify.app/favicon.ico">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://ugandavotes.netlify.app/" />
+    <meta property="og:title" content="Uganda Votes" />
+    <meta property="og:description" content="Secure, transparent public polling powering Uganda's digital future." />
+    <meta property="og:image" content="https://ugandavotes.netlify.app/favicon.ico" />
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://ugandavotes.netlify.app" />
+    <meta property="twitter:title" content="Uganda Votes | Helping You Shape Uganda's Future" />
+    <meta property="twitter:description" content="Join thousands in secure digital polling." />
+    <meta property="twitter:image" content="https://ugandavotes.netlify.app/favicon.ico" />
+
+    <!-- Performance & Suppression -->
+    <script>
+      const originalError = console.error;
+      console.error = (...args) => {
+        if (args[0] && typeof args[0] === 'string' && args[0].includes('[vite] failed to connect to websocket')) return;
+        originalError.apply(console, args);
+      };
+    </script>
+    
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "Uganda Votes",
+      "url": "https://ugandavotes.netlify.app",
+      "logo": "https://ugandavotes.netlify.app/favicon.ico"
+    }
+    </script>
+  </head>
+  <body class="bg-slate-950">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { 
+      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.firebase.sign_in_provider == 'anonymous'); 
+    }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- Collections ---
+
+    match /users/{uid} {
+      // Allow any signed-in user to read profiles (helpful for polls/comments)
+      allow read: if isSignedIn();
+      // Allow users to create and update their OWN profile
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      allow update: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
+    }
+
+    match /polls/{pollId} {
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      
+      allow update: if isAdmin() || (
+        (isSignedIn() || existing().get('isSpecial', false) == true) && 
+        incoming().diff(existing()).affectedKeys().hasOnly(['totalVotes', 'updatedAt']) &&
+        incoming().totalVotes == existing().totalVotes + 1
+      );
+      
+      match /candidates/{candidateId} {
+        allow read: if true;
+        allow create, delete: if isAdmin();
+        allow update: if isAdmin() || (
+          (isSignedIn() || get(/databases/$(database)/documents/polls/$(pollId)).data.get('isSpecial', false) == true) && 
+          incoming().diff(existing()).affectedKeys().hasOnly(['voteCount', 'viewCount', 'updatedAt']) &&
+          (
+            (incoming().diff(existing()).affectedKeys().hasOnly(['voteCount', 'updatedAt']) && incoming().voteCount == existing().voteCount + 1) ||
+            (incoming().diff(existing()).affectedKeys().hasOnly(['viewCount']))
+          )
+        );
+      }
+      
+      match /votes/{voteId} {
+        allow read: if isSignedIn() || isAdmin();
+        allow create: if isSignedIn() || isAdmin() || incoming().get('isSpecial', false) == true;
+        allow update: if isAdmin();
+        allow delete: if isAdmin();
+      }
+      
+      match /dailyVotes/{date_uid} {
+        allow read: if true;
+        allow create: if isSignedIn() || isAdmin() || incoming().get('isSpecial', false) == true;
+        allow update: if isAdmin();
+        allow delete: if isAdmin();
+      }
+
+      match /eligibleIds/{id} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+      
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isSignedIn();
+        allow update, delete: if isAdmin() || (isSignedIn() && existing().get('uid', '') == request.auth.uid);
+      }
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

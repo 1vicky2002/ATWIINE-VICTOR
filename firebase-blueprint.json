@@ -1,0 +1,144 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "isAdmin": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastLogin": { "type": "string", "format": "date-time" },
+        "banned": { "type": "boolean" }
+      },
+      "required": ["uid", "email", "isAdmin"]
+    },
+    "Poll": {
+      "title": "Poll",
+      "description": "A voting poll",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "ended", "upcoming"] },
+        "startDate": { "type": "string", "format": "date-time" },
+        "endDate": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "totalVotes": { "type": "number" },
+        "bannerURL": { "type": "string" },
+        "allowComments": { "type": "boolean" },
+        "slug": { "type": "string" },
+        "isSpecial": { "type": "boolean" },
+        "requiredIdType": { "type": "string" },
+        "sponsors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "logoURL": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["title", "endDate", "status", "slug"]
+    },
+    "EligibleId": {
+      "title": "EligibleId",
+      "description": "An ID eligible to vote in a special poll",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "voted": { "type": "boolean" },
+        "votedAt": { "type": "string", "format": "date-time" },
+        "voterUid": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    "GlobalSetting": {
+      "title": "GlobalSetting",
+      "description": "Global application settings and sponsors",
+      "type": "object",
+      "properties": {
+        "globalSponsors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "logoURL": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "Candidate": {
+      "title": "Candidate",
+      "description": "A candidate in a poll",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "slogan": { "type": "string" },
+        "bio": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "voteCount": { "type": "number" },
+        "viewCount": { "type": "number" },
+        "position": { "type": "number" }
+      },
+      "required": ["name", "photoURL", "voteCount"]
+    },
+    "Vote": {
+      "title": "Vote",
+      "description": "A single vote cast by a user",
+      "type": "object",
+      "properties": {
+        "candidateId": { "type": "string" },
+        "votedAt": { "type": "string", "format": "date-time" },
+        "email": { "type": "string" }
+      },
+      "required": ["candidateId", "votedAt", "email"]
+    },
+    "DailyVote": {
+      "title": "DailyVote",
+      "description": "Enforces one vote per day per user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "candidateId": { "type": "string" },
+        "votedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "candidateId", "votedAt"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A comment on a candidate profile",
+      "type": "object",
+      "properties": {
+        "candidateId": { "type": "string" },
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "flagged": { "type": "boolean" }
+      },
+      "required": ["candidateId", "uid", "text", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": { "schema": "User", "description": "User profiles" },
+    "/polls/{pollId}": { "schema": "Poll", "description": "Main polls" },
+    "/polls/{pollId}/candidates/{candidateId}": { "schema": "Candidate", "description": "Candidates in a poll" },
+    "/polls/{pollId}/votes/{uid}": { "schema": "Vote", "description": "Votes cast in a poll" },
+    "/polls/{pollId}/dailyVotes/{date_uid}": { "schema": "DailyVote", "description": "Daily voting tracking" },
+    "/polls/{pollId}/eligibleIds/{id}": { "schema": "EligibleId", "description": "Allowed IDs for special polls" },
+    "/polls/{pollId}/comments/{commentId}": { "schema": "Comment", "description": "Comments on candidates" },
+    "/settings/{settingId}": { "schema": "GlobalSetting", "description": "Global settings and sponsors" }
+  }
+}
