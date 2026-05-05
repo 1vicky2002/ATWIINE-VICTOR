@@ -49,13 +49,12 @@ export default function AdminDashboard() {
     description: "",
     category: "Presidential",
     location: "",
-    endDate: "",
+    endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     bannerURL: "",
-    status: "upcoming" as const,
+    status: "active" as const,
     sponsors: [] as any[],
     isSpecial: false,
-    requiredIdType: "Reg Number",
-    dbIndex: 0
+    requiredIdType: "Reg Number"
   });
 
   const [eligibleIdInput, setEligibleIdInput] = useState("");
@@ -71,7 +70,6 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'polls' | 'settings'>('polls');
 
   const [selectedPoll, setSelectedPoll] = useState<any>(null);
-  const [targetDbIndex, setTargetDbIndex] = useState(0);
   const [candidates, setCandidates] = useState<any[]>([]);
   const [newCandidate, setNewCandidate] = useState({
     name: "",
@@ -161,18 +159,25 @@ export default function AdminDashboard() {
       const pollRef = doc(pollCol);
       const pollId = pollRef.id;
 
+      const pollDate = new Date(newPoll.endDate);
+      if (isNaN(pollDate.getTime())) {
+        alert("Invalid End Date selected.");
+        return;
+      }
+
       const pollData = {
         ...newPoll,
         slug,
         totalVotes: 0,
         createdAt: serverTimestamp(),
-        endDate: new Date(newPoll.endDate),
+        endDate: pollDate,
         isPublished: false,
         isSpecial: newPoll.isSpecial || false,
         requiredIdType: newPoll.requiredIdType || "Reg Number"
       };
       
       await setDoc(doc(db, 'polls', pollId), pollData);
+      console.log("Poll successfully saved with ID:", pollId);
       
       const idsToUpload = newPollEligibleIds.length > 0 
         ? newPollEligibleIds 
@@ -183,10 +188,21 @@ export default function AdminDashboard() {
       }
 
       setShowAddPoll(false);
-      setNewPoll({ title: "", description: "", category: "Presidential", location: "", endDate: "", bannerURL: "", status: "upcoming", sponsors: [] as any[], isSpecial: false, requiredIdType: "Reg Number", dbIndex: 0 });
+      setNewPoll({ 
+        title: "", 
+        description: "", 
+        category: "Presidential", 
+        location: "", 
+        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], 
+        bannerURL: "", 
+        status: "active", 
+        sponsors: [] as any[], 
+        isSpecial: false, 
+        requiredIdType: "Reg Number" 
+      });
       setEligibleIdInput("");
       setNewPollEligibleIds([]);
-      alert("Executive Action: Poll Initialized.");
+      alert(`Executive Action: Poll Initialized. (Registry ID: ${pollId})`);
     } catch (error: any) {
       console.error("Poll Creation Failed:", error);
       alert(`Critical Error: System failed to initialize poll registry. ${error.message || 'Check connection or permissions.'}`);
@@ -259,30 +275,41 @@ export default function AdminDashboard() {
         const ws = wb.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
         
+        console.log("Excel Data Extracted:", data.length, "rows found");
+        
         const extractedIds: string[] = [];
-        const ignoredHeaders = ["REG NO", "ID", "NAME", "EMAIL", "PHONE", "STUDENT ID", "REG NUMBER", "IDENTIFIER", "VOTER ID", "VOTERS ID"];
-        data.forEach(row => {
+        const ignoredHeaders = ["REG NO", "ID", "NAME", "EMAIL", "PHONE", "STUDENT ID", "REG NUMBER", "IDENTIFIER", "VOTER ID", "VOTERS ID", "S/N", "NO", "INDEX NUMBER", "NAMES"];
+        
+        data.forEach((row, idx) => {
           row.forEach(cell => {
             if (cell && (typeof cell === 'string' || typeof cell === 'number')) {
-              const val = cell.toString().trim();
-              if (val.length >= 1 && !ignoredHeaders.includes(val.toUpperCase())) {
-                extractedIds.push(val.toUpperCase());
+              const val = cell.toString().trim().toUpperCase();
+              // Skip if it looks like a header or is empty
+              if (val.length >= 2 && !ignoredHeaders.includes(val)) {
+                // Additional sanity check: if it's the first row and we only have 1 column, it might be a header if it's a known string
+                if (idx === 0 && row.length === 1 && ignoredHeaders.some(h => val.includes(h))) return;
+                
+                extractedIds.push(val);
               }
             }
           });
         });
 
-        if (extractedIds.length > 0) {
+        // Deduplicate
+        const uniqueIds = Array.from(new Set(extractedIds));
+        console.log("Unique IDs found:", uniqueIds.length);
+
+        if (uniqueIds.length > 0) {
           if (isForNewPoll) {
-            setNewPollEligibleIds(extractedIds);
-            alert(`${extractedIds.length} IDs extracted. They will be saved when you deploy the poll.`);
+            setNewPollEligibleIds(uniqueIds);
+            alert(`${uniqueIds.length} unique IDs extracted successfully from ${file.name}. They will be registered when you Deploy the poll.`);
           } else {
-            if (confirm(`Extracted ${extractedIds.length} potential IDs. Proceed to UPDATE the current poll registry with these entries?`)) {
-              await handleBulkUploadIds(extractedIds);
+            if (confirm(`Extracted ${uniqueIds.length} unique IDs from ${file.name}. Proceed to UPDATE the live registry?`)) {
+              await handleBulkUploadIds(uniqueIds);
             }
           }
         } else {
-          alert("No IDs found in the file.");
+          alert("No valid IDs identified in the file. Please ensure the file contains a column with voter identifiers (e.g. Reg Numbers).");
         }
       } catch (err) {
         console.error("File processing error:", err);
@@ -309,6 +336,7 @@ export default function AdminDashboard() {
         isPublished: true,
         status: 'active'
       });
+      alert("Executive Action: Poll Published to Live registry.");
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `polls/${pollId}`);
     }
@@ -808,22 +836,6 @@ export default function AdminDashboard() {
                 </div>
                 {uploadingBanner && <p className="text-[10px] font-bold text-ug-red uppercase tracking-widest animate-pulse ml-4">Uploading Asset...</p>}
               </div>
-              {/* Deployment infrastructure */}
-              <div className="space-y-4 pt-4 border-t border-slate-100">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] ml-4">Deployment Infrastructure</label>
-                <div className="flex flex-col md:flex-row md:items-center gap-4 p-4 bg-slate-50 border border-slate-100 rounded-3xl">
-                  <div className="flex items-center gap-2 flex-grow">
-                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Target Server (Project):</label>
-                    <select 
-                      value={newPoll.dbIndex}
-                      onChange={e => setNewPoll({...newPoll, dbIndex: parseInt(e.target.value)})}
-                      className="flex-grow p-2.5 rounded-xl bg-white border border-slate-200 text-[10px] font-bold uppercase ring-2 ring-ug-red/10 outline-none"
-                    >
-                      <option value={0}>Primary Cluster (ug-votes)</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
 
               {/* Poll Specific Configuration */}
               <div className="space-y-4 pt-4 border-t border-slate-100 mb-6">
@@ -1076,7 +1088,12 @@ export default function AdminDashboard() {
                   )}
                 >
                   <div className="flex justify-between items-start mb-2">
-                    <h3 className="font-display font-bold text-lg truncate pr-2 flex-grow">{poll.title}</h3>
+                    <h3 className="font-display font-bold text-lg truncate pr-2 flex-grow flex items-center gap-2">
+                      {poll.title}
+                      {!poll.isPublished && (
+                        <span className="px-2 py-0.5 bg-ug-red/10 text-ug-red text-[8px] rounded-md border border-ug-red/20 uppercase tracking-widest font-black animate-pulse">Draft</span>
+                      )}
+                    </h3>
                     <div className="flex items-center gap-2">
                       <button 
                         onClick={(e) => {
@@ -1137,7 +1154,7 @@ export default function AdminDashboard() {
                 </div>
                 <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl">
                   <button 
-                    onClick={() => handleDeletePoll(selectedPoll.id)}
+                    onClick={() => handleDeletePoll(selectedPoll)}
                     className="p-3 text-slate-300 hover:text-ug-red hover:bg-ug-red/10 rounded-xl transition-all"
                     title="Delete Poll"
                   >
@@ -1145,13 +1162,16 @@ export default function AdminDashboard() {
                   </button>
                   <div className="w-px h-6 bg-slate-200 mx-2" />
                   {!selectedPoll.isPublished && (
-                    <button
-                      onClick={() => handlePublishPoll(selectedPoll.id)}
-                      className="px-6 py-3 bg-ug-red text-white rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all shadow-xl hover:scale-105 active:scale-95 flex items-center gap-2"
-                    >
-                      <Zap size={14} className="fill-white" />
-                      Publish to Live
-                    </button>
+                    <div className="flex flex-col">
+                      <button
+                        onClick={() => handlePublishPoll(selectedPoll.id)}
+                        className="px-6 py-3 bg-ug-red text-white rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all shadow-xl hover:scale-105 active:scale-95 flex items-center gap-2"
+                      >
+                        <Zap size={14} className="fill-white" />
+                        Publish to Live
+                      </button>
+                      <p className="text-[8px] text-ug-red font-black uppercase tracking-widest mt-2 ml-1 animate-pulse">Offline / Invisible on Home</p>
+                    </div>
                   )}
                   {(['active', 'upcoming', 'ended'] as const).map(status => (
                     <button

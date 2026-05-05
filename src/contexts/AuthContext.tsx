@@ -15,7 +15,7 @@ import {
   signInAnonymously as firebaseSignInAnonymously
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
-import { auth, db, dbs, handleFirestoreError, OperationType } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 
 interface AuthContextType {
   user: User | null;
@@ -40,9 +40,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
       setUser(u);
-      if (!u) {
+      if (u) {
+        // Initialize user document if it doesn't exist
+        try {
+          const userDocRef = doc(db, 'users', u.uid);
+          const snap = await getDoc(userDocRef);
+          if (!snap.exists()) {
+            const initialProfile = {
+              uid: u.uid,
+              email: u.email,
+              displayName: u.displayName || 'Voter',
+              photoURL: u.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.uid}`,
+              isAdmin: false,
+              createdAt: serverTimestamp(),
+              lastLogin: serverTimestamp(),
+              banned: false
+            };
+            await setDoc(userDocRef, initialProfile, { merge: true });
+          } else {
+            // Just update lastLogin on new auth session (optional)
+            await updateDoc(userDocRef, { lastLogin: serverTimestamp() }).catch(() => {});
+          }
+        } catch (err) {
+          console.error("Auth init error:", err);
+        }
+      } else {
         setProfile(null);
         setLoading(false);
       }
@@ -56,53 +80,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const userDocRef = doc(db, 'users', user.uid);
 
-    const unsubscribeProfile = onSnapshot(userDocRef, async (snap) => {
-      try {
-        const isAdminEmail = [
-          "cybertechsoftwares@gmail.com",
-          "campuseyemedia256@gmail.com",
-          "atwiinevictor2@gmail.com"
-        ].includes(user.email || "");
-
-        if (!snap.exists()) {
-          // Initialize profile
-          const initialProfile = {
-            uid: user.uid,
-            email: user.email,
-            displayName: user.displayName || 'Voter',
-            photoURL: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
-            isAdmin: isAdminEmail,
-            createdAt: serverTimestamp(),
-            lastLogin: serverTimestamp(),
-            banned: false
-          };
-
-          await setDoc(doc(db, 'users', user.uid), initialProfile, { merge: true });
-          if (isAdminEmail) {
-            await setDoc(doc(db, 'admins', user.uid), { email: user.email, level: 'super' }, { merge: true });
-          }
-          setProfile(initialProfile);
-        } else {
-          const profileData = snap.data();
-          setProfile(profileData);
-          
-          if (isAdminEmail && !profileData.isAdmin) {
-            console.log("Upgrading user to Admin based on email list");
-            await updateDoc(doc(db, 'users', user.uid), { isAdmin: true });
-            await setDoc(doc(db, 'admins', user.uid), { email: user.email, level: 'super' }, { merge: true });
-          }
-
-          // Update last login if more than 1 hour ago (optional optimization)
-          await updateDoc(doc(db, 'users', user.uid), { lastLogin: serverTimestamp() });
-        }
-      } catch (error) {
-        console.error("Profile sync error:", error);
-      } finally {
-        setLoading(false);
+    const unsubscribeProfile = onSnapshot(userDocRef, (snap) => {
+      if (snap.exists()) {
+        setProfile(snap.data());
       }
+      setLoading(false);
     }, (error) => {
       console.warn("Profile listener error:", error);
-      handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
+      // If we get permission denied here, it's likely they aren't logged in correctly or rules are propagation delay
       setLoading(false);
     });
 
@@ -195,11 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user, 
       profile, 
       loading: loading || isLoggingIn, 
-      isAdmin: profile?.isAdmin || [
-        "cybertechsoftwares@gmail.com",
-        "campuseyemedia256@gmail.com",
-        "atwiinevictor2@gmail.com"
-      ].includes(user?.email || ""),
+      isAdmin: !!profile?.isAdmin,
       login, 
       loginWithEmail,
       signupWithEmail,

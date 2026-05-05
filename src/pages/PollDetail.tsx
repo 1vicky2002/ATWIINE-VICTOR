@@ -161,13 +161,15 @@ function CandidateModal({ poll, candidateId, onClose, initialCandidate }: { poll
       const dailyVoteRef = doc(db, `polls/${poll.id}/dailyVotes`, dailyVoteId);
       
       const checkVote = async () => {
-        try {
-          const snap = await getDoc(dailyVoteRef);
-          setVotedToday(snap.exists());
-        } catch (e) {
-          console.warn("Check daily vote failed", e);
+      try {
+        const snap = await getDoc(dailyVoteRef);
+        if (snap.exists()) {
+          setVotedToday(true);
         }
-      };
+      } catch (e) {
+        console.warn("Check daily vote failed", e);
+      }
+    };
       
       checkVote();
     } else {
@@ -233,6 +235,15 @@ function CandidateModal({ poll, candidateId, onClose, initialCandidate }: { poll
       return;
     }
 
+    // Device protection for special polls
+    const deviceParticipatedKey = `ug_special_participated_${poll?.id}`;
+    const secondaryDeviceKey = `ug_voted_registry_${poll?.id}`;
+    
+    if (poll?.isSpecial && (localStorage.getItem(deviceParticipatedKey) || localStorage.getItem(secondaryDeviceKey))) {
+      setIdError("This device is already registered as having participated in this official voting exercise.");
+      return;
+    }
+
     setVoting(true);
     try {
       if (!poll?.id) return;
@@ -252,9 +263,9 @@ function CandidateModal({ poll, candidateId, onClose, initialCandidate }: { poll
         throw new Error("Already voted today");
       }
 
-      if (poll.isSpecial) {
+      const eligibleRef = poll.isSpecial ? doc(db, `polls/${poll.id}/eligibleIds`, sanitizedSpecialId) : null;
+      if (poll.isSpecial && eligibleRef) {
         setVerifyingId(true);
-        const eligibleRef = doc(db, `polls/${poll.id}/eligibleIds`, sanitizedSpecialId);
         const eligibleSnap = await getDoc(eligibleRef);
         setVerifyingId(false);
         
@@ -273,6 +284,13 @@ function CandidateModal({ poll, candidateId, onClose, initialCandidate }: { poll
           setVoting(false);
           return;
         }
+
+        const eligibleData = eligibleSnap.data();
+        if (eligibleData?.voted) {
+          setIdError(`This ${poll.requiredIdType || 'ID'} has already been used to vote.`);
+          setVoting(false);
+          return;
+        }
         setFailedAttempts(0);
       }
 
@@ -287,33 +305,39 @@ function CandidateModal({ poll, candidateId, onClose, initialCandidate }: { poll
         const candSnap = await transaction.get(candRef);
         const pollSnap = await transaction.get(pollRef);
 
-        if (!pollSnap.exists() || !candSnap.exists()) return;
-
-        if (user && !poll.isSpecial) {
-          const uRef = doc(db, 'users', user.uid);
-          const uSnap = await transaction.get(uRef);
-          if (!uSnap.exists()) {
-            transaction.set(uRef, {
-              uid: user.uid,
-              email: user.email,
-              displayName: user.displayName || 'Voter',
-              photoURL: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
-              isAdmin: false,
-              createdAt: serverTimestamp(),
-              lastLogin: serverTimestamp(),
-              banned: false
-            });
-          } else {
-            transaction.update(uRef, { lastLogin: serverTimestamp() });
-          }
+        if (!pollSnap.exists() || !candSnap.exists()) {
+          throw new Error("Contestant or Poll data is stale. Please refresh.");
         }
 
+        // Relational check for special IDs at transaction level
+        if (poll.isSpecial && eligibleRef) {
+          const transEligibleSnap = await transaction.get(eligibleRef);
+          if (!transEligibleSnap.exists()) {
+            throw new Error("Invalid Registration Number.");
+          }
+          if (transEligibleSnap.data()?.voted) {
+            throw new Error("This Registration Number has already voted.");
+          }
+          // Mark as voted in transaction
+          transaction.update(eligibleRef, { 
+            voted: true, 
+            votedAt: serverTimestamp(),
+            candidateId: candidateId 
+          });
+        }
+
+        const pollData = pollSnap.data();
+        const candData = candSnap.data();
+
+        const newCandVotes = (candData.voteCount || 0) + 1;
+        const newPollVotes = (pollData.totalVotes || 0) + 1;
+
         transaction.update(candRef, { 
-          voteCount: increment(1),
+          voteCount: newCandVotes,
           updatedAt: serverTimestamp()
         });
         transaction.update(pollRef, { 
-          totalVotes: increment(1),
+          totalVotes: newPollVotes,
           updatedAt: serverTimestamp()
         });
 
@@ -334,6 +358,14 @@ function CandidateModal({ poll, candidateId, onClose, initialCandidate }: { poll
           transaction.set(vRef, voterMetadata);
         }
       });
+
+      // Mark device as voted for special polls
+      if (poll.isSpecial) {
+        localStorage.setItem(deviceParticipatedKey, "true");
+        localStorage.setItem(`ug_voted_registry_${poll.id}`, "true");
+        // Also try to set a cookie for even more persistence
+        document.cookie = `${deviceParticipatedKey}=true; max-age=31536000; path=/`;
+      }
 
       setVotedToday(true);
       setShowVoteSuccess(true);
@@ -445,6 +477,9 @@ function CandidateModal({ poll, candidateId, onClose, initialCandidate }: { poll
 
   if (loading) return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
+      <Helmet>
+        <title>Loading Candidate Profile... | Uganda Votes</title>
+      </Helmet>
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -460,6 +495,13 @@ function CandidateModal({ poll, candidateId, onClose, initialCandidate }: { poll
 
   return (
     <>
+      <Helmet>
+        <title>{`${candidate.name} | ${poll.title} | Uganda Votes`}</title>
+        <meta name="description" content={`Vote for ${candidate.name} in the ${poll.title}. ${candidate.slogan || candidate.bio?.slice(0, 160)}`} />
+        <meta property="og:title" content={`${candidate.name} | Uganda Votes`} />
+        <meta property="og:image" content={candidate.photoURL} />
+        <meta property="og:url" content={`${window.location.origin}/?page=home&poll=${poll.slug}&candidate=${candidateId}`} />
+      </Helmet>
       <motion.div 
         ref={containerRef}
         initial={{ opacity: 0 }}
@@ -497,6 +539,21 @@ function CandidateModal({ poll, candidateId, onClose, initialCandidate }: { poll
 
             {/* Voting Section directly below picture */}
             <div className="w-full flex flex-col items-center mt-8 px-4 max-w-sm">
+                {poll?.isSpecial && !isPollEnded && !votedToday && (
+                  <div className="w-full mb-4 px-4 py-3 bg-slate-950 rounded-2xl border border-white/10 shadow-2xl relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-1 h-full bg-ug-yellow" />
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-white/5 rounded-lg">
+                        <Award size={16} className="text-ug-yellow" />
+                      </div>
+                      <div>
+                        <p className="text-[8px] font-black text-white uppercase tracking-[0.2em] mb-0.5">Secure Identification Required</p>
+                        <p className="text-[7px] font-medium text-slate-400 uppercase tracking-tight">One Vote Per Verified Document Only</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
                 {!isPollEnded && !votedToday && !needsRegistration && poll?.isSpecial && (
                    <motion.div 
                    initial={{ opacity: 0, y: 10 }}
@@ -586,7 +643,7 @@ function CandidateModal({ poll, candidateId, onClose, initialCandidate }: { poll
 
           <div className="p-6 md:p-12 bg-white flex flex-col items-center">
             {/* Share Panel - Smaller and same line */}
-            <div className="flex flex-wrap items-center justify-center gap-2 mb-10 w-full">
+            <div className="flex flex-wrap items-center justify-center gap-2 mb-8 w-full">
               <button 
                 onClick={() => handleShareCandidate()}
                 className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-full text-[8px] font-bold uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95 shadow-xl"
@@ -612,6 +669,31 @@ function CandidateModal({ poll, candidateId, onClose, initialCandidate }: { poll
               >
                 <FaXTwitter size={14} />
               </button>
+            </div>
+
+            {/* Visual Share Preview */}
+            <div className="w-full max-w-sm mb-12 bg-slate-900 rounded-3xl p-6 shadow-2xl border border-white/10 overflow-hidden relative group">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-ug-red/10 blur-[100px] rounded-full" />
+              <div className="flex items-center gap-2 mb-4 relative z-10">
+                <Globe size={12} className="text-ug-yellow" />
+                <span className="text-[8px] font-black text-white/50 uppercase tracking-[0.2em]">Live Sharing Preview</span>
+              </div>
+              <div className="bg-white rounded-xl overflow-hidden shadow-2xl relative z-10 transition-transform duration-500 group-hover:scale-[1.02]">
+                <img src={candidate.photoURL} alt="" className="w-full h-32 object-cover" />
+                <div className="p-4">
+                  <h5 className="font-display font-black text-slate-900 text-sm leading-tight mb-1">{candidate.name} | Uganda Votes</h5>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="px-1.5 py-0.5 bg-ug-red/10 text-ug-red text-[6px] font-black rounded border border-ug-red/20 uppercase tracking-widest">Election 2026</span>
+                    <span className="text-[8px] text-slate-300">ugandavotes.gov</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 line-clamp-2 leading-relaxed h-[30px]">
+                    Vote for {candidate.name} in the {poll.title}. Shaping the Pearl of Africa. Secure digital voting platform.
+                  </p>
+                </div>
+              </div>
+              <p className="text-[7px] font-bold text-white/30 text-center mt-4 italic uppercase tracking-widest leading-relaxed relative z-10">
+                Automated Metadata Sync Enabled. All Shares Will Feature This Official Profile Vision.
+              </p>
             </div>
 
             <div className="max-w-2xl w-full text-center mb-12">

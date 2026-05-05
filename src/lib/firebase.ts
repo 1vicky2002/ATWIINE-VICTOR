@@ -1,7 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { initializeFirestore, memoryLocalCache } from 'firebase/firestore';
-import managedConfig from '../../firebase-applet-config.json';
 
 const firebaseConfig = {
   apiKey: "AIzaSyAvLcOWnsk3VcIfT5z6dpOOblL9LFzQZMc",
@@ -18,13 +17,10 @@ const app = initializeApp(firebaseConfig);
 
 // Initialize firestore
 export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-  experimentalAutoDetectLongPolling: false,
   localCache: memoryLocalCache(),
 });
 
 export const auth = getAuth(app);
-export const dbs = [db]; // Array with single database for compatibility with existing loops
 
 /**
  * DEFAULT EXPORTS

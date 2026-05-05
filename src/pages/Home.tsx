@@ -162,13 +162,24 @@ export default function Home() {
   }, [polls, searchQuery, locationQuery]);
 
   const { activePolls, archivedPolls } = useMemo(() => {
-    const active = filteredPolls.filter(p => {
-      const targetDate = p.endDate?.seconds ? new Date(p.endDate.seconds * 1000) : new Date();
-      return p.status !== 'ended' && targetDate >= new Date();
+    const publishedOnly = filteredPolls.filter(p => p.isPublished !== false);
+    const active = publishedOnly.filter(p => {
+      // If no end date, assume it's active for 30 days from creation
+      const targetDate = p.endDate?.seconds 
+        ? new Date(p.endDate.seconds * 1000) 
+        : (p.createdAt?.seconds ? new Date((p.createdAt.seconds + 2592000) * 1000) : new Date());
+      
+      const now = new Date();
+      // Ensure we compare without being too loose on status
+      return p.status !== 'ended' && targetDate > now;
     });
-    const archived = filteredPolls.filter(p => {
-      const targetDate = p.endDate?.seconds ? new Date(p.endDate.seconds * 1000) : new Date();
-      return p.status === 'ended' || targetDate < new Date();
+    const archived = publishedOnly.filter(p => {
+      const targetDate = p.endDate?.seconds 
+        ? new Date(p.endDate.seconds * 1000) 
+        : (p.createdAt?.seconds ? new Date((p.createdAt.seconds + 2592000) * 1000) : new Date());
+      
+      const now = new Date();
+      return p.status === 'ended' || targetDate <= now;
     });
     return { activePolls: active, archivedPolls: archived };
   }, [filteredPolls]);
